@@ -14,16 +14,17 @@
     flex: 1; display: flex; flex-direction: column; padding: 32px 48px; box-sizing: border-box;
     position: relative; z-index: 10; pointer-events: none;
   }
-  .header, #legend, #reset-btn { pointer-events: auto; }
+  .header, #legend, #reset-btn, #tour-btn { pointer-events: auto; }
   .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
   .header-left { display: flex; flex-direction: column; gap: 8px; }
   h1 { font-size: 28px; font-weight: 600; margin: 0; letter-spacing: -0.02em; color: #2c2c2a; }
   #info-label { font-size: 16px; color: #5f5e5a; margin: 0; font-weight: 500; }
-  #reset-btn {
+  .header-right { display: flex; gap: 12px; }
+  #reset-btn, #tour-btn {
     font-size: 14px; font-weight: 500; background: #ffffff; border: 1px solid #d1cfc5;
     border-radius: 8px; padding: 10px 16px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.05); transition: all 0.2s ease;
   }
-  #reset-btn:hover { background: #f8f9fa; border-color: #b4b2a9; box-shadow: 0 4px 8px rgba(0,0,0,0.08); }
+  #reset-btn:hover, #tour-btn:hover { background: #f8f9fa; border-color: #b4b2a9; box-shadow: 0 4px 8px rgba(0,0,0,0.08); }
   #canvas-container { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 1; }
   
   #tooltip {
@@ -44,7 +45,10 @@
       <h1>Redesigned Call Centre - Architectural View</h1>
       <p id="info-label">Drag to rotate. Scroll to zoom. Hover over a zone for details.</p>
     </div>
-    <button id="reset-btn">Reset view</button>
+    <div class="header-right">
+      <button id="tour-btn">Start Tour</button>
+      <button id="reset-btn">Reset view</button>
+    </div>
   </div>
 </div>
 
@@ -857,6 +861,99 @@ document.getElementById('reset-btn').addEventListener('click', function() {
     if (f < frames) requestAnimationFrame(animateReset);
   }
   animateReset();
+});
+
+// --- Cinematic Tour Logic ---
+var tourActive = false;
+var tourTimeout = null;
+var tourReqFrame = null;
+var tourBtn = document.getElementById('tour-btn');
+
+var tourRoomsList = [
+  "Reception / Entry",
+  "Focus / Call Zone A",
+  "Break / Social Area",
+  "Meeting / Huddle Room",
+  "Quiet / Recovery Zone"
+];
+
+function stopTour() {
+  if (!tourActive) return;
+  tourActive = false;
+  clearTimeout(tourTimeout);
+  cancelAnimationFrame(tourReqFrame);
+  tourBtn.textContent = "Start Tour";
+  document.getElementById('info-label').textContent = "Drag to rotate. Scroll to zoom. Hover over a zone for details.";
+}
+
+function flyTo(targetCamPos, targetLookAt, durationMs, onComplete) {
+  var startTime = performance.now();
+  
+  function animateFly(time) {
+    if (!tourActive) return;
+    var elapsed = time - startTime;
+    
+    // Incrementally lerp from CURRENT position to target.
+    // This allows user dragging to safely offset the camera mid-flight without breaking it.
+    camera.position.lerp(targetCamPos, 0.03);
+    controls.target.lerp(targetLookAt, 0.03);
+    
+    if (elapsed < durationMs) {
+      tourReqFrame = requestAnimationFrame(animateFly);
+    } else {
+      if (onComplete) onComplete();
+    }
+  }
+  tourReqFrame = requestAnimationFrame(animateFly);
+}
+
+tourBtn.addEventListener('click', function() {
+  if (tourActive) {
+    stopTour();
+    return;
+  }
+  tourActive = true;
+  tourBtn.textContent = "Stop Tour";
+  
+  var roomIndex = 0;
+  
+  function nextRoom() {
+    if (!tourActive) return;
+    if (roomIndex >= tourRoomsList.length) {
+      // End of tour, fly back to start
+      document.getElementById('info-label').textContent = "Tour complete. Returning to start view...";
+      flyTo(initialCamPos, targetCenter, 3000, function() {
+        stopTour();
+      });
+      return;
+    }
+    
+    var rName = tourRoomsList[roomIndex];
+    var r = rooms.find(function(item) { return item.n === rName; });
+    if (r) {
+      document.getElementById('info-label').textContent = "Touring: " + r.n;
+      var cx = r.x + r.w / 2;
+      var cz = r.y + r.d / 2;
+      
+      // Calculate a good cinematic angle
+      var targetLook = new THREE.Vector3(cx, 0, cz);
+      var targetCam = new THREE.Vector3(cx + 25, 20, cz + 25);
+      
+      flyTo(targetCam, targetLook, 2500, function() {
+        if (!tourActive) return;
+        // Pause at the room
+        tourTimeout = setTimeout(function() {
+          roomIndex++;
+          nextRoom();
+        }, 3000); // 3 second pause
+      });
+    } else {
+      roomIndex++;
+      nextRoom();
+    }
+  }
+  
+  nextRoom();
 });
 
 window.addEventListener('resize', function() {
